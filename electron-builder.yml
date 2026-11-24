@@ -1,0 +1,24 @@
+appId: com.projectbantay.lidar
+productName: Bantay LiDAR
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**
+  - package.json
+asarUnpack:
+  - node_modules/@serialport/bindings-cpp/**
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: ${productName} Setup ${version}.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: Bantay LiDAR
+  uninstallDisplayName: Bantay LiDAR
