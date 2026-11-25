@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ConnectionBar from './components/ConnectionBar'
-import RadarCanvas, { ColorMode } from './components/RadarCanvas'
+import RadarCanvas, { ColorMode, ViewFilters } from './components/RadarCanvas'
 import AlertPanel from './components/AlertPanel'
 import RecordPanel from './components/RecordPanel'
 import DetectionPanel from './components/DetectionPanel'
@@ -44,6 +44,20 @@ export default function App() {
   const [alertCfg, setAlertCfg] = useState<AlertSettings>(loadAlert)
   const [colorMode, setColorMode] = useState<ColorMode>('distance')
   const [pointSize, setPointSize] = useState(3)
+  const [showRoad, setShowRoad] = useState(() => {
+    try {
+      const v = localStorage.getItem('bantay.showRoad')
+      return v === null ? true : v === 'true'
+    } catch { return true }
+  })
+  const [viewFilters, setViewFilters] = useState<ViewFilters>(() => {
+    const def: ViewFilters = { front: true, right: true, rear: true, left: true, movingOnly: false }
+    try {
+      const raw = localStorage.getItem('bantay.viewFilters')
+      if (raw) return { ...def, ...JSON.parse(raw) }
+    } catch { /* ignore */ }
+    return def
+  })
   const [detectCfg, setDetectCfg] = useState<DetectSettings>(loadDetect)
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const trackerRef = useRef(new Tracker())
@@ -86,6 +100,14 @@ export default function App() {
       /* ignore */
     }
   }, [detectCfg])
+
+  useEffect(() => {
+    try { localStorage.setItem('bantay.showRoad', String(showRoad)) } catch { /* ignore */ }
+  }, [showRoad])
+
+  useEffect(() => {
+    try { localStorage.setItem('bantay.viewFilters', JSON.stringify(viewFilters)) } catch { /* ignore */ }
+  }, [viewFilters])
 
   const frame = replaying ? replayFrame : status?.state === 'connected' ? live : null
   const alerts = useMemo(() => evaluateAlerts(frame?.points ?? null, alertCfg), [frame, alertCfg])
@@ -130,6 +152,8 @@ export default function App() {
           sectorEnd={alertCfg.sectorEnd}
           colorMode={colorMode}
           pointSize={pointSize}
+          showRoad={showRoad}
+          viewFilters={viewFilters}
         />
 
         <aside className="side">
@@ -139,6 +163,8 @@ export default function App() {
             scene={scene}
             selectedId={selectedId}
             onSelect={setSelectedId}
+            viewFilters={viewFilters}
+            onViewFiltersChange={setViewFilters}
           />
           <AlertPanel settings={alertCfg} onChange={setAlertCfg} result={alerts} />
           <RecordPanel
@@ -151,6 +177,10 @@ export default function App() {
             <div className="panel-head">
               <h2>Display</h2>
             </div>
+            <label className="row" style={{ cursor: 'pointer', fontSize: 12 }}>
+              <input type="checkbox" checked={showRoad} onChange={(e) => setShowRoad(e.target.checked)} />
+              <span>Show road overlay</span>
+            </label>
             <label className="field">
               <span>Color points by</span>
               <div className="seg">

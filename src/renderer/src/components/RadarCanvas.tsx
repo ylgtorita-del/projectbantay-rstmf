@@ -4,6 +4,14 @@ import { boxCorners, Scene, SENSOR_MAX_RANGE_MM } from '../perception'
 
 export type ColorMode = 'distance' | 'intensity'
 
+export interface ViewFilters {
+  front: boolean
+  right: boolean
+  rear: boolean
+  left: boolean
+  movingOnly: boolean
+}
+
 interface Props {
   points: Float32Array | null
   scene: Scene | null
@@ -17,6 +25,8 @@ interface Props {
   sectorEnd: number
   colorMode: ColorMode
   pointSize: number
+  showRoad: boolean
+  viewFilters: ViewFilters
 }
 
 const RING_STEPS = [100, 250, 500, 1000, 2000, 5000, 10000]
@@ -32,7 +42,22 @@ const IPALETTE = Array.from({ length: 64 }, (_, i) => {
   return `hsl(${Math.round(150 - t * 100)}, 90%, ${Math.round(30 + t * 45)}%)`
 })
 
+const LANE_WIDTH_MM = 3000
+const ROAD_CENTER_X_MM = -LANE_WIDTH_MM / 2 // center dividing line offset from LiDAR
+const ROAD_LEFT_EDGE_MM = ROAD_CENTER_X_MM - LANE_WIDTH_MM
+const ROAD_RIGHT_EDGE_MM = ROAD_CENTER_X_MM + LANE_WIDTH_MM
+
 const rad = (deg: number) => (deg * Math.PI) / 180
+
+function inVisibleSector(angleDeg: number, f: ViewFilters): boolean {
+  if (f.front && f.right && f.rear && f.left) return true
+  const a = ((angleDeg % 360) + 360) % 360
+  if (f.front && (a >= 315 || a < 45)) return true
+  if (f.right && a >= 45 && a < 135) return true
+  if (f.rear && a >= 135 && a < 225) return true
+  if (f.left && a >= 225 && a < 315) return true
+  return false
+}
 
 export default function RadarCanvas(props: Props) {
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -176,6 +201,8 @@ function draw(
   const s = v.scale
   const maxR = (Math.hypot(Math.max(cx, w - cx), Math.max(cy, h - cy)) + 10) / s
 
+  if (p.showRoad) drawRoad(c, cx, cy, s, w, h)
+
   // Range rings
   const step = RING_STEPS.find((st) => st * s >= 70) ?? RING_STEPS[RING_STEPS.length - 1]
   c.lineWidth = 1
@@ -266,9 +293,11 @@ function draw(
   const Y = (y: number) => cy - y * s
 
   // Walls
+  const vf = p.viewFilters
   if (p.scene) {
     c.lineCap = 'round'
     for (const wl of p.scene.walls) {
+      if (!inVisibleSector(wl.bearing, vf)) continue
       c.strokeStyle = 'rgba(110,160,255,0.85)'
       c.lineWidth = Math.max(3, 60 * s)
       c.beginPath()
@@ -290,6 +319,7 @@ function draw(
       const a = rad(pts[i])
       const d = pts[i + 1]
       if (d > p.maxRangeMm) continue
+      if (!inVisibleSector(pts[i], vf)) continue
       const x = cx + Math.sin(a) * d * s
       const y = cy - Math.cos(a) * d * s
       if (x < -5 || y < -5 || x > w + 5 || y > h + 5) continue
@@ -304,16 +334,18 @@ function draw(
 
   // Object boxes + labels
   if (p.scene) {
-    c.font = '600 11px "Segoe UI", system-ui, sans-serif'
+    c.font = '600 12px "Segoe UI", system-ui, sans-serif'
     c.textBaseline = 'bottom'
     for (const o of p.scene.objects) {
+      if (!inVisibleSector(o.bearing, vf)) continue
+      if (vf.movingOnly && !o.moving) continue
       const inAlert = p.alertEnabled && o.distance < p.thresholdMm
       const sel = o.id === p.selectedId
       const color = inAlert ? '#ff4b3e' : o.moving ? '#ff6bd6' : '#ffb547'
-      const corners = boxCorners(o, 40) // a lidar only sees the near face; give thin boxes some depth
-      c.fillStyle = color + (sel ? '40' : '1f')
+      const corners = boxCorners(o, 80)
+      c.fillStyle = color + (sel ? '55' : '30')
       c.strokeStyle = color
-      c.lineWidth = sel ? 2.5 : 1.5
+      c.lineWidth = sel ? 3 : 2
       c.beginPath()
       corners.forEach(([x, y], i) => (i ? c.lineTo(X(x), Y(y)) : c.moveTo(X(x), Y(y))))
       c.closePath()
@@ -321,21 +353,25 @@ function draw(
       c.stroke()
 
       if (o.moving) {
+        c.lineWidth = 2
         c.beginPath()
         c.moveTo(X(o.cx), Y(o.cy))
         c.lineTo(X(o.cx + o.vx * 0.8), Y(o.cy + o.vy * 0.8))
         c.stroke()
       }
 
-      // Label above the box's top-most corner.
       let top = corners[0]
       for (const k of corners) if (Y(k[1]) < Y(top[1])) top = k
-      const label = `#${o.id}  ${(o.distance / 1000).toFixed(2)} m`
+      const sectorLabel = o.bearing >= 315 || o.bearing < 45 ? 'F'
+        : o.bearing >= 45 && o.bearing < 135 ? 'R'
+        : o.bearing >= 135 && o.bearing < 225 ? 'B'
+        : 'L'
+      const label = `#${o.id} [${sectorLabel}] ${(o.distance / 1000).toFixed(2)} m`
       const tx = X(top[0])
-      const ty = Y(top[1]) - 4
+      const ty = Y(top[1]) - 5
       const tw = c.measureText(label).width
-      c.fillStyle = 'rgba(7,11,16,0.8)'
-      c.fillRect(tx - 3, ty - 14, tw + 6, 15)
+      c.fillStyle = 'rgba(7,11,16,0.85)'
+      c.fillRect(tx - 4, ty - 15, tw + 8, 17)
       c.fillStyle = color
       c.fillText(label, tx, ty)
     }
@@ -344,6 +380,7 @@ function draw(
     // Wall distance labels
     c.font = '11px "Segoe UI", system-ui, sans-serif'
     for (const wl of p.scene.walls) {
+      if (!inVisibleSector(wl.bearing, vf)) continue
       const mx = X((wl.x1 + wl.x2) / 2)
       const my = Y((wl.y1 + wl.y2) / 2)
       const label = `wall ${(wl.distance / 1000).toFixed(2)} m`
@@ -355,16 +392,54 @@ function draw(
     }
   }
 
-  // Sensor marker (forward = 0° = up)
+  // Sensor marker (forward = 0° = up) — shaped as a small vehicle arrow
   c.fillStyle = '#e8f4ff'
   c.beginPath()
   c.arc(cx, cy, 5, 0, Math.PI * 2)
   c.fill()
   c.fillStyle = 'rgba(232,244,255,0.8)'
   c.beginPath()
-  c.moveTo(cx, cy - 16)
-  c.lineTo(cx - 5, cy - 8)
-  c.lineTo(cx + 5, cy - 8)
+  c.moveTo(cx, cy - 18)
+  c.lineTo(cx - 7, cy - 6)
+  c.lineTo(cx + 7, cy - 6)
   c.closePath()
   c.fill()
+}
+
+function drawRoad(
+  c: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  s: number,
+  w: number,
+  h: number
+): void {
+  const toScreenX = (worldX: number) => cx + worldX * s
+  const leftEdge = toScreenX(ROAD_LEFT_EDGE_MM)
+  const rightEdge = toScreenX(ROAD_RIGHT_EDGE_MM)
+  const centerLine = toScreenX(ROAD_CENTER_X_MM)
+
+  // Asphalt surface
+  c.fillStyle = 'rgba(35,35,40,0.7)'
+  c.fillRect(leftEdge, 0, rightEdge - leftEdge, h)
+
+  // Road edge lines (solid white)
+  const edgeW = Math.max(1, 150 * s)
+  c.fillStyle = 'rgba(255,255,255,0.45)'
+  c.fillRect(leftEdge - edgeW / 2, 0, edgeW, h)
+  c.fillRect(rightEdge - edgeW / 2, 0, edgeW, h)
+
+  // Center dividing line (dashed yellow)
+  const lineW = Math.max(1, 100 * s)
+  const dashLen = 3000 * s
+  const gapLen = 2000 * s
+  c.strokeStyle = 'rgba(255,200,0,0.6)'
+  c.lineWidth = lineW
+  c.setLineDash([dashLen, gapLen])
+  c.beginPath()
+  c.moveTo(centerLine, 0)
+  c.lineTo(centerLine, h)
+  c.stroke()
+  c.setLineDash([])
+  c.lineWidth = 1
 }

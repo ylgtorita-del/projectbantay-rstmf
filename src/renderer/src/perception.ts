@@ -39,7 +39,7 @@ export const DEFAULT_DETECT: DetectSettings = {
   showPoints: true,
   maxRangeMm: SENSOR_MAX_RANGE_MM,
   gapMm: 120,
-  minPoints: 4,
+  minPoints: 8,
   wallMinLengthMm: 800,
   lineTolMm: 35
 }

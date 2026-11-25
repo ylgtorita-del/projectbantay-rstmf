@@ -1,5 +1,6 @@
 import type { DetectSettings, Scene } from '../perception'
 import { SENSOR_MAX_RANGE_MM } from '../perception'
+import type { ViewFilters } from './RadarCanvas'
 
 interface Props {
   settings: DetectSettings
@@ -7,12 +8,15 @@ interface Props {
   scene: Scene | null
   selectedId: number | null
   onSelect: (id: number | null) => void
+  viewFilters: ViewFilters
+  onViewFiltersChange: (f: ViewFilters) => void
 }
 
 const m = (mm: number, digits = 2) => `${(mm / 1000).toFixed(digits)} m`
 
-export default function DetectionPanel({ settings, onChange, scene, selectedId, onSelect }: Props) {
+export default function DetectionPanel({ settings, onChange, scene, selectedId, onSelect, viewFilters, onViewFiltersChange }: Props) {
   const set = (patch: Partial<DetectSettings>) => onChange({ ...settings, ...patch })
+  const setFilter = (patch: Partial<ViewFilters>) => onViewFiltersChange({ ...viewFilters, ...patch })
   const objects = scene?.objects ?? []
   const walls = scene?.walls ?? []
   const nearestWall = walls.reduce<(typeof walls)[number] | null>(
@@ -33,6 +37,19 @@ export default function DetectionPanel({ settings, onChange, scene, selectedId, 
         <Toggle label="Objects" checked={settings.objects} onChange={(v) => set({ objects: v })} />
         <Toggle label="Walls" checked={settings.walls} onChange={(v) => set({ walls: v })} />
         <Toggle label="Raw points" checked={settings.showPoints} onChange={(v) => set({ showPoints: v })} />
+      </div>
+
+      <div className="filter-group">
+        <span className="filter-label">Show sectors</span>
+        <div className="row toggles">
+          <Toggle label="Front" checked={viewFilters.front} onChange={(v) => setFilter({ front: v })} />
+          <Toggle label="Right" checked={viewFilters.right} onChange={(v) => setFilter({ right: v })} />
+          <Toggle label="Rear" checked={viewFilters.rear} onChange={(v) => setFilter({ rear: v })} />
+          <Toggle label="Left" checked={viewFilters.left} onChange={(v) => setFilter({ left: v })} />
+        </div>
+        <div className="row toggles">
+          <Toggle label="Moving only" checked={viewFilters.movingOnly} onChange={(v) => setFilter({ movingOnly: v })} />
+        </div>
       </div>
 
       {nearestWall && settings.walls && (
